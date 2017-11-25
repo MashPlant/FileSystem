@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <algorithm>
 #include <cstring>
 using namespace std;
@@ -10,19 +11,24 @@ using namespace std;
 //todo
 //排序
 //复制
-//树状显示
-
 
 class FileManeger
 {
 private:
 	const static int MAX_SIZE = 4096;
+
 	const static int FIL = 0;
 	const static int DIR = 1;
 	const static int EMPTY = 2;
-	const string NON_EXIST= " No such FILE or directory\n" ;
-	const string NON_FILE = " is not a file\n";
-	const string NON_DIR = " is not a directory\n";
+
+	const static string NON_EXIST;
+	const static string NON_FILE;
+	const static string NON_DIR;
+
+	const static set<string> REQUIRE_FILE;
+	const static set<string> REQUIRE_DIR;
+	const static set<string> REQUIRE_EXIST;
+	const static set<string> REQUIRE_PARENT;
 
 	bool inodeBitmap[MAX_SIZE];
 	bool blockBitmap[MAX_SIZE];
@@ -164,7 +170,7 @@ private:
 						if (chb.dirs[j].name[0] != '\0')
 						{
 							ret += "   " + space + chb.dirs[j].name + "\n";
-							ret+=print(chb.dirs[j].inode, shift + 1);
+							ret +=print(chb.dirs[j].inode, shift + 2);
 						}
 					}
 				}
@@ -253,6 +259,63 @@ private:
 			else
 				fseek(f, MAX_SIZE, SEEK_CUR);
 		}
+		fprintf(f, "%d", EOF);
+	}
+	int allocateInode(int mode)
+	{
+		int nInode = -1;
+		for (int i = 0; i < MAX_SIZE; ++i)
+		{
+			if (!inodeBitmap[i])
+			{
+				inodeBitmap[i] = true;
+				inodes[i].id = i;
+				inodes[i].mode = mode;
+				inodes[i].sz = 0;
+				nInode = i;
+				break;
+			}
+		}
+		return nInode;
+	}
+	int allocateBlock(int parent,int nInode,int mode)
+	{
+		int nBlock=-1;
+		for (int i = 0; i < MAX_SIZE; ++i)
+		{
+			if (!blockBitmap[i])
+			{
+				blockBitmap[i] = true;
+				if (mode == DIR)
+					dbs[i].p = parent;
+				else if (mode == FIL)
+					fbs[i].p = parent;
+				inodes[nInode].block = i;
+				blockToInode[i] = nInode;
+				nBlock = i;
+				break;
+			}
+		}
+		return nBlock;
+	}
+	void allocateEntry(int parent,int nInode,const string &content)
+	{
+		for (int i = 0; i < 14; ++i)
+		{
+			if (dbs[parent].dirs[i].name[0] == '\0')
+			{
+				cpy(dbs[parent].dirs[i].name, content);
+				dbs[parent].dirs[i].inode = nInode;
+				break;
+			}
+		}
+	}
+	void initDirBlock(int nInode, int nBlock, int parent, const string &content, const string &sub)
+	{
+		dbs[nBlock].dirs[14].inode = nInode;
+		cpy(dbs[nBlock].dirs[14].name, content);
+		dbs[nBlock].dirs[15].inode = parent;
+		cpy(dbs[nBlock].dirs[15].name, sub);
 	}
 public:
 	FileManeger(const string &_path):path(_path)
@@ -377,6 +440,37 @@ public:
 				}
 			}
 		}
+		if (REQUIRE_EXIST.count(opt))
+		{
+			if (!nameToInode.count(content))
+				return content + NON_EXIST;
+		}
+
+		int in;
+		string sub;
+		int parent;
+		if (REQUIRE_PARENT.count(opt))
+		{
+			sub = content.substr(0, content.find_last_of('/'));
+			if (!nameToInode.count(sub))
+				return sub + NON_DIR;
+			parent = nameToInode[sub];
+		}
+		else//存在->没问题 or 不要求存在->要求parent存在->不会进入这里
+		{
+			in = nameToInode[content];
+			if (REQUIRE_DIR.count(opt))
+			{
+				if (inodes[in].mode != DIR)
+					return content + NON_DIR;
+			}
+			if (REQUIRE_FILE.count(opt))
+			{
+				if (inodes[in].mode != FIL)
+					return content + NON_FILE;
+			}
+		}
+
 		if (opt == "pwd")
 		{
 			Inode &in = inodes[curr];
@@ -394,20 +488,7 @@ public:
 		}
 		if (opt == "cd")
 		{
-			if (!nameToInode.count(content))
-			{
-				ret += content + NON_EXIST;
-			}
-			else
-			{
-				int i = nameToInode[content];
-				if (inodes[i].mode == FIL)
-				{
-					ret += content + NON_DIR;
-				}
-				else
-					curr = i;
-			}
+			curr = in;
 		}
 		if (opt == "mkdir")
 		{
@@ -416,92 +497,23 @@ public:
 				ret += content + " already exists\n";
 				return ret;
 			}
-			string sub = content.substr(0,content.find_last_of('/'));
-			if (nameToInode.count(sub))//五步:找空余的inode，空余的block，空余的dirs，修改map，增加.和..（14，15项）
-			{
-				int parent = nameToInode[sub];
-				int nInode = 0;
-				for (int i = 0; i < MAX_SIZE; ++i)
-				{
-					if (!inodeBitmap[i])
-					{
-						inodeBitmap[i] = true;
-						inodes[i].id = i;
-						inodes[i].mode = DIR;
-						inodes[i].sz = 0;
-						nInode = i;
-						nameToInode[content] = i;
-						break;
-					}
-				}
-				for (int i = 0; i < MAX_SIZE; ++i)
-				{
-					if (!blockBitmap[i])
-					{
-						blockBitmap[i] = true;
-						dbs[i].p = parent;
-						inodes[nInode].block = i;
-						blockToInode[i] = nInode;
-						dbs[i].dirs[14].inode = nInode;
-						cpy(dbs[i].dirs[14].name, content);
-						dbs[i].dirs[15].inode = parent;
-						cpy(dbs[i].dirs[15].name, sub);
-						break;
-					}
-				}
-				for (int i = 0; i < 14; ++i)
-				{
-					if (dbs[parent].dirs[i].name[0] == '\0')
-					{
-						cpy(dbs[parent].dirs[i].name, content);
-						dbs[parent].dirs[i].inode = nInode;
-						break;
-					}
-				}
-				
-			}
-			else
-			{
-				ret += content + NON_DIR;
-			}
-
+			int nInode = allocateInode(DIR);
+			nameToInode[content] = nInode;
+			int nBlock = allocateBlock(parent, nInode, DIR);
+			initDirBlock(nInode, nBlock, parent, content, sub);
+			allocateEntry(parent, nInode, content);
 		}
 		if (opt == "ls")
 		{
-			if (nameToInode.count(content))
-			{
-				int i = nameToInode[content];
-				if (inodes[i].mode == DIR)
-				{
-					ret += content + "is a directory\n";
-				}
-				else
-					ret += content + "is a file\n";
-			}
+			if (inodes[in].mode == DIR)
+				ret += content + " is a directory\n";
 			else
-			{
-				ret += content + NON_EXIST;
-			}
+				ret += content + " is a file\n";
 		}
 		if (opt == "rmdir")
 		{
-			if (nameToInode.count(content))
-			{
-				int i = nameToInode[content];
-				if (inodes[i].mode == FIL)
-				{
-					ret += content + NON_FILE;
-				}
-				else
-				{
-					remove(i);
-					ret += content + " removed\n";
-				}
-			}
-			else
-			{
-				ret += content + NON_EXIST;
-			}
+			remove(in);
+			ret += content + " removed\n";
 		}
 		if (opt == "echo")
 		{
@@ -512,80 +524,21 @@ public:
 			}
 			else
 			{
-				string sub = content.substr(0, content.find_last_of('/'));
-				if (nameToInode.count(sub))//四步:找空余的inode，空余的block，空余的dirs，修改map
-				{
-					int parent = nameToInode[sub];
-					int nInode = 0;
-					for (int i = 0; i < MAX_SIZE; ++i)
-					{
-						if (!inodeBitmap[i])
-						{
-							inodeBitmap[i] = true;
-							inodes[i].id = i;
-							inodes[i].mode = FIL;
-							inodes[i].sz = 0;
-							nInode = i;
-							nameToInode[content] = i;
-							break;
-						}
-					}
-					for (int i = 0; i < MAX_SIZE; ++i)
-					{
-						if (!blockBitmap[i])
-						{
-							blockBitmap[i] = true;
-							fbs[i].p = parent;
-							cpy(fbs[i].data, str);
-							inodes[nInode].block = i;
-							blockToInode[i] = nInode;
-							break;
-						}
-					}
-					for (int i = 0; i < 14; ++i)
-					{
-						if (dbs[parent].dirs[i].name[0] == '\0')
-						{
-							cpy(dbs[parent].dirs[i].name, content);
-							dbs[parent].dirs[i].inode = nInode;
-							break;
-						}
-					}
-
-				}
-				else
-					ret += sub + NON_DIR;
+				//四步:找空余的inode，空余的block，空余的dirs，修改map
+				int nInode = allocateInode(FIL);
+				nameToInode[content] = nInode;
+				int nBlock = allocateBlock(parent, nInode, FIL);
+				allocateEntry(parent, nInode, content);
 			}
 		}
 		if (opt == "cat")
 		{
-			if (nameToInode.count(content))
-			{
-				int i = nameToInode[content];
-				if (inodes[i].mode == DIR)
-					ret += content + NON_FILE;
-				else
-					ret += fbs[inodes[i].block].data + string("\n");
-			}
-			else
-				ret += content + NON_EXIST;
+			ret += fbs[inodes[in].block].data + string("\n");
 		}
 		if (opt == "rm")
 		{
-			if (nameToInode.count(content))
-			{
-				int i = nameToInode[content];
-				if (inodes[i].mode == DIR)
-					ret += content + NON_FILE;
-				else
-				{
-					remove(i);
-					ret += content+" removed\n";
-				}
-			}
-			else
-				ret += content + NON_EXIST;
-
+			remove(in);
+			ret += content+" removed\n";
 		}
 		if (opt == "write")
 		{
@@ -595,21 +548,16 @@ public:
 		}
 		if (opt == "pwd_r")
 		{
-			if (nameToInode.count(content))
-			{
-				int i = nameToInode[content];
-				if (inodes[i].mode == DIR)
-				{
-					ret += print(i,0);
-				}
-				else
-					ret += content + NON_DIR;
-			}
-			else
-				ret += content + NON_EXIST;
-			
+			ret += print(in,0);
 		}
 		return ret;
 	}
 };
 
+const string FileManeger::NON_EXIST = " No such FILE or directory\n";
+const string FileManeger::NON_FILE = " is not a file\n";
+const string FileManeger::NON_DIR = " is not a directory\n";
+const set<string> FileManeger::REQUIRE_DIR = {"cd","rmdir","pwd_r"};
+const set<string> FileManeger::REQUIRE_FILE = {"cat","rm"};
+const set<string> FileManeger::REQUIRE_EXIST = { "cd","ls","rmdir","cat","rm","pwd_r"};
+const set<string> FileManeger::REQUIRE_PARENT = {"echo","mkdir","cpy"};
