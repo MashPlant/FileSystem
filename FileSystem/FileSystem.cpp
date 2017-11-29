@@ -10,17 +10,6 @@
 
 int main()
 {
-	//FILE *f = fopen("text.out", "w");
-	/*int a;
-	fscanf(f, "%d",&a);
-	fseek(f, 10, ftell(f));
-	char c;
-	while (c=fgetc(f))
-		cout <<c<<endl;*/
-
-	//fseek(f, 10240000, SEEK_CUR);
-	//fprintf(f, "%d", 1);
-
 	FileManeger *fm = new FileManeger("data");
 	string opt;
 	while (cout << ">>", cin >> opt)
@@ -32,12 +21,14 @@ int main()
 			delete fm;
 			break;
 		}
-		if (opt != "pwd")
+		if (opt != "pwd"&&opt!="pwd_r")
 			cin >> content;
-		if (opt == "echo")
+		if (opt == "echo" || opt == "cpy"||opt=="cpydir")
 			cin >> str;
+		if (opt == "echo")
+			swap(content, str);//理解错题意了，这样改比较快
 		cout<<fm->exec(opt, content,str);
-		if (opt == "echo" || opt == "mkdir" || opt == "rm" || opt == "rmdir")
+		if (opt == "echo" || opt == "mkdir" || opt == "rm" || opt == "rmdir" || opt == "cpy" || opt == "cpydir")
 		{
 			cout << "write the change? y/n\n>>";
 			string ans;
@@ -48,7 +39,6 @@ int main()
 			}
 		}
 	}
-	//while (true);
     return 0;
 }
 
