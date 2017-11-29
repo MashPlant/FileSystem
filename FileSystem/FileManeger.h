@@ -9,12 +9,6 @@
 #include <regex>
 using namespace std;
 
-//todo
-//排序
-//复制
-//相对路径！！！！
-//可以考虑：blocks里直接装string，不必限制长度，读写时限制之。只要设法读取文件时由相对路径恢复成绝对路径即可。
-
 class FileManeger
 {
 private:
@@ -40,9 +34,7 @@ private:
 	
 	bool inodeBitmap[MAX_SIZE];
 	bool blockBitmap[MAX_SIZE];
-	int curr = 0;//貌似内存越界了
-
-	//int curr = 0;//当前所在文件夹的inode
+	int curr = 0;
 
 	struct Inode
 	{
@@ -52,10 +44,11 @@ private:
 		int block = 0;
 		void read(FILE *f)
 		{
-			fscanf(f, "%d%d%d%d", &id, &mode, &sz, &block);
+			fscanf(f, " %d%d%d%d ", &id, &mode, &sz, &block);
 		}
 		void print(FILE *f)
 		{
+			
 			fprintf(f, "%d %d %d %d ", id, mode, sz, block);
 		}
 	};
@@ -132,76 +125,58 @@ private:
 		}
 		return ret;
 	}
-	map<string, int> nameToInode;//todo 删除时在这里也要删
+
 	typedef pair<int, int> pii;
-	/*pii nameToInode(const string &name)//first:self,second:parent
+	pii nameToInode(const string &name)//first:self,second:parent
 	{
 		if (name == "" || name == "/")
 		{
 			return make_pair(0, -1);
 		}
 		vector<string> names = split(name, "/");
-		int self = -1, parent = -1;
-		int start = 0;
+		int self = 0, parent = 0;
 		if (names[0] == ".")//除非输入空串，否则分割一定有结果
 		{
-			start = 1;
 			self = curr;
 			parent = getP(self);
 		}
 		if (names[0] == "..")
 		{
-			start = 1;
 			self = getP(curr);
 			parent = getP(self);
 		}
-		for (int i = start; i < name.size(); ++i)
+		if (names[0] != "."&&names[0] != ".."&&names[0] != "")
 		{
-			if (i == 0)//否则不从根目录开始找
-			{
-				for (int j = 0 ; j < 14; ++j)
-				{
-					string child = dbs[inodes[0].block].dirs[j].name;
-					if (!child.empty() && child == names[0])
-					{
-						self = dbs[inodes[0].block].dirs[j].inode;
-						break;
-					}
-				}
-				if (self == -1)
-					return make_pair(-1, -1);
-				continue;
-			}
+			return make_pair(-1, -1);
+		}
+		for (int i = 1; i < names.size(); ++i)//names[0]只能是"." ".." ""之一,需跳过
+		{
 			bool found = false;
 			for (int j = 0; j < 14; ++j)
 			{
-				if (getKind(self) == FIL)
-				{
-					if (i + 1 != names.size())
-						return make_pair(-1, -1);
-					else return make_pair(self, parent);
-				}
+				if (getKind(self) == FIL)//如果真的要找文件，只可能在最后一项出现文件，此时i循环已退出
+					return make_pair(-1, -1);
 				string child = dbs[inodes[self].block].dirs[j].name;
 				if (!child.empty() && child == names[i])
 				{
-					parent = self;
 					self = dbs[inodes[self].block].dirs[j].inode;
+					parent = self;
 					found = true;
 					break;
 				}
 			}
 			if (!found)
 			{
-				return make_pair(-1, -1);
+				if (i + 1 != names.size())//仅仅在最后一项没找到是可以的，创建即可
+					return make_pair(-1, -1);
+				return make_pair(-1, parent);
 			}
 		}
 		return make_pair(self, parent);
-		
-	}*/
+	}
 	//todo 文件名到inode也要有映射
 
 	map<int, int> blockToInode;
-	//no need of inode to block ,for Inode has field "block" recording it
 
 	char encode(bool *beg,int len)//[)
 	{
@@ -246,22 +221,19 @@ private:
 				if (!name.empty())
 				{
 					string parent_name = ddb.dirs[14].name;
-					string new_name = parent_name + "/" + name.substr(name.find_last_of('/') + 1);
 					if (inodes[sdb.dirs[i].inode].mode == DIR)
 					{
 						int nInode = allocateInode(DIR);
-						nameToInode[new_name] = nInode;
 						int nBlock = allocateBlock(dest, nInode, DIR);
-						initDirBlock(nInode, nBlock, dest, new_name, parent_name);
-						allocateEntry(dest, nInode, new_name);
+						initDirBlock(nInode, nBlock, dest, name, parent_name);
+						allocateEntry(dest, nInode, name);
 						cpy(nInode, sdb.dirs[i].inode);
 					}
 					else
 					{
 						int nInode = allocateInode(FIL);
-						nameToInode[new_name] = nInode;
 						int nBlock = allocateBlock(dest, nInode, FIL);
-						allocateEntry(dest, nInode, new_name);
+						allocateEntry(dest, nInode, name);
 						cpy(nInode, sdb.dirs[i].inode);
 					}
 				}
@@ -283,7 +255,6 @@ private:
 			{
 				if (p.dirs[i].inode == inode)
 				{
-					nameToInode.erase(p.dirs[i].name);
 					memset(p.dirs[i].name, 0, sizeof(p.dirs[i].name));
 					break;
 				}
@@ -300,7 +271,6 @@ private:
 				{
 					if (p.dirs[i].inode == inode)
 					{
-						nameToInode.erase(p.dirs[i].name);
 						memset(p.dirs[i].name, 0, sizeof(p.dirs[i].name));
 						break;
 					}
@@ -312,11 +282,13 @@ private:
 					remove(db.dirs[i].inode);
 		}
 	}
-	string print(int inode,int shift)
+	string print(int inode,int shift ,bool r)
 	{
 		string ret, space;
 		for (int i = 0; i < shift; ++i)
 			space += "   ";
+		if (inodes[inode].mode == FIL)
+			return "";
 		Inode &in = inodes[inode];
 		DirBlock &db = dbs[in.block];
 		for (int i = 0; i < 14; ++i)
@@ -324,20 +296,9 @@ private:
 			string child = db.dirs[i].name;
 			if (!child.empty())
 			{
-				Inode &chi = inodes[db.dirs[i].inode];
-				ret += space + child + "\n";
-				if (chi.mode == DIR)
-				{
-					DirBlock &chb = dbs[chi.block];
-					for (int j = 0; j < 14; ++j)
-					{
-						if (chb.dirs[j].name[0] != '\0')
-						{
-							ret += "   " + space + chb.dirs[j].name + "\n";
-							ret +=print(chb.dirs[j].inode, shift + 2);
-						}
-					}
-				}
+				ret += space + (getKind(db.dirs[i].inode) == DIR ? "/" : "") + child + '\n';
+				if (r)
+					ret += print(db.dirs[i].inode,shift+1,r);
 			}
 		}
 		return ret;
@@ -355,11 +316,18 @@ private:
 			if (!child.empty())
 			{
 				if (re ? regex_search(child, *re) : child.find(match) != string::npos)
-					ret += child + '\n';
+					ret += (getKind(db.dirs[i].inode) == DIR ? "/" : "")+child + '\n';
 				ret += find(db.dirs[i].inode, match, re);
 			}
 		}
 		return ret;
+	}
+	void writeEmpty(FILE *f,int cnt)
+	{
+		if (cnt == 0)
+			return;
+		fseek(f, cnt - 1, SEEK_CUR);
+		fputc(0, f);
 	}
 	void init()
 	{
@@ -368,19 +336,23 @@ private:
 		for (int j = 0; j < 2; ++j)
 		{
 			fputc(1<<7, f);
-			//fseek(f, MAX_SIZE - 1, SEEK_CUR);
-			for (int i = 8; i < MAX_SIZE; i+=8)
-				fputc(0, f);
+			writeEmpty(f, (MAX_SIZE>>3) - 1);
 		}
+		//fseek(f, 7 * 1024, SEEK_CUR);
+		int a = ftell(f);
+		int b = a;
 		//inode
 		Inode empty, dir;
 		empty.mode = EMPTY, dir.mode = DIR;
 		dir.print(f);
 		for (int i = 1; i < MAX_SIZE; ++i)
 			empty.print(f);
+		a = ftell(f);
+		b = a;
 		//block
-		fseek(f, MAX_SIZE*MAX_SIZE, SEEK_CUR);
-		fprintf(f, "%d", EOF);
+		writeEmpty(f, MAX_SIZE*MAX_SIZE);
+		a = ftell(f);
+		b = a;
 		fclose(f);
 	}
 	void write(FILE *f)
@@ -410,19 +382,21 @@ private:
 				if (inodes[blockToInode[i]].mode == DIR)
 				{
 					DirBlock &db = dbs[i];
+					
 					for (int j = 0; j < 16; ++j)
 					{
 						for (int k = 0; k < PATH_SIZE; ++k)
 						{
 							if (!db.dirs[j].name[k])
 							{
-								fseek(f, PATH_SIZE - k, SEEK_CUR);
+								writeEmpty(f, PATH_SIZE - k);
 								break;
 							}
 							fputc(db.dirs[j].name[k], f);
 						}
 						fprintf(f, "%d", db.dirs[j].inode);
 					}
+					
 				}
 				else
 				{
@@ -431,7 +405,7 @@ private:
 					{
 						if (!fb.data[j])
 						{
-							fseek(f, MAX_SIZE - j, SEEK_CUR);
+							writeEmpty(f, MAX_SIZE - j);
 							break;
 						}
 						fputc(fb.data[j], f);
@@ -439,9 +413,9 @@ private:
 				}
 			}
 			else
-				fseek(f, MAX_SIZE, SEEK_CUR);
+				writeEmpty(f, MAX_SIZE);
+
 		}
-		fprintf(f, "%d", EOF);
 	}
 	int allocateInode(int mode)
 	{
@@ -565,7 +539,7 @@ public:
 				blockToInode[inodes[i].block] = inodes[i].id;
 			}
 		}
-		fgetc(f);//多余空格
+		fscanf(f," ");//多余空格
 		for (int i = 0; i < MAX_SIZE; ++i)
 		{
 			if (blockToInode.count(i))//not empty
@@ -601,8 +575,7 @@ public:
 				fseek(f, MAX_SIZE, SEEK_CUR);
 			}
 		}
-		nameToInode[""] = 0;//根目录
-		nameToInode["/"] = 0;
+
 		for (int i = 0; i < MAX_SIZE; ++i)
 		{
 			Inode &in = inodes[i];
@@ -615,7 +588,6 @@ public:
 					string name = db.dirs[j].name;
 					if (!name.empty())
 					{
-						nameToInode[name] = e.inode;
 						if (inodes[e.inode].mode == FIL)
 							fbs[inodes[e.inode].block].p = i;
 						else
@@ -640,26 +612,23 @@ public:
 			return "root path has no parent\n";
 
 		string ret;
-		
-		if (REQUIRE_EXIST.count(opt))
+		pii loc = nameToInode(content);//location
+		if (REQUIRE_EXIST.count(opt)&&loc.first==-1)
 		{
-			if (!nameToInode.count(content))
-				return content + NON_EXIST;
+			return content + NON_EXIST;
 		}
 
-		int in;
+		int in=loc.first;
+		int parent=loc.second;
 		string sub;
-		int parent;
 		if (REQUIRE_PARENT.count(opt))
 		{
 			sub = content.substr(0, content.find_last_of('/'));
-			if (!nameToInode.count(sub))
+			if (parent==-1)
 				return sub + NON_DIR;
-			parent = nameToInode[sub];
 		}
 		else//存在->没问题 or 不要求存在->要求parent存在->不会进入这里
 		{
-			in = nameToInode[content];
 			if (REQUIRE_DIR.count(opt))
 			{
 				if (inodes[in].mode != DIR)
@@ -674,16 +643,7 @@ public:
 
 		if (opt == "pwd")
 		{
-			Inode &in = inodes[curr];
-			DirBlock &db = dbs[in.block];
-			for (int i = 0; i < 14; ++i)
-			{
-				string child = db.dirs[i].name;
-				if (!child.empty())
-					ret += child + '\n';
-			}
-			if (ret.empty())
-				ret += "curr dir" + IS_EMPTY;
+			ret += print(curr, 0, false);
 		}
 		if (opt == "cd")
 		{
@@ -691,45 +651,25 @@ public:
 		}
 		if (opt == "mkdir")
 		{
-			if (nameToInode.count(content))
+			if (in!=-1)
 				return content + ALREADY_EXIST;
+			vector<string> names = split(content, "/");
+			if (names.back().size() >= PATH_SIZE)
+			{
+				return content + TOO_LONG;
+			}
 			int nInode = allocateInode(DIR);
-			nameToInode[content] = nInode;
 			int nBlock = allocateBlock(parent, nInode, DIR);
-			initDirBlock(nInode, nBlock, parent, content, sub);
-			allocateEntry(parent, nInode, content);
+			initDirBlock(nInode, nBlock, parent, names[names.size()-1], names[names.size()-2]);
+			allocateEntry(parent, nInode, names[names.size() - 1]);
 		}
-		if (opt == "ls")
-		{
-			if (inodes[in].mode == DIR)
-			{
-				ret += content + " is a directory\n";
-				ret += "the size of " + content + " is " + to_string(inodes[in].sz)+"\n";
-				DirBlock &db = dbs[inodes[in].block];
-				bool found = false;
-				for (int i = 0; i < 14; ++i)
-				{
-					string child = db.dirs[i].name;
-					if (!child.empty())
-						ret += child + '\n', found = true;
-				}
-				if (!found)
-					ret += content+IS_EMPTY;
-			}
-			else
-			{
-				ret += content + " is a file\n";
-				ret += "the size of " + content + " is " + to_string(inodes[in].sz)+"\n";
-				ret += fbs[inodes[in].block].data + string("\n");
-			}
-		}
-		if (opt == "ls_r")
+		if (opt == "ls"||opt=="ls_r")
 		{
 			if (inodes[in].mode == DIR)
 			{
 				ret += content + " is a directory\n";
 				ret += "the size of " + content + " is " + to_string(inodes[in].sz) + "\n";
-				ret+= print(in, 0);
+				ret += print(in, 0, opt == "ls_r");
 			}
 			else
 			{
@@ -748,31 +688,31 @@ public:
 		}
 		if (opt == "echo")
 		{
-
-			if (nameToInode.count(content))
+			if (in!=-1)
 			{
-				int old = nameToInode[content],old_sz=inodes[old].sz;
-				if (cpy(fbs[inodes[old].block].data, str, MAX_SIZE))
+				int old_sz=inodes[in].sz;
+				if (cpy(fbs[inodes[in].block].data, str, MAX_SIZE))
 				{
 					return str + TOO_LONG;
 				}
-				resize(old, (int)str.size() - old_sz);
+				resize(in, (int)str.size() - old_sz);
 			}
 			else
 			{
 				//四步:找空余的inode，空余的block，空余的dirs，修改map
+				vector<string> names = split(content, "/");
 				if (str.size() >= MAX_SIZE)
 				{
 					return str + TOO_LONG;
 				}
-				if (content.size() >= PATH_SIZE)
+				if (names.back().size() >= PATH_SIZE)
 				{
 					return content + TOO_LONG;
 				}
 				int nInode = allocateInode(FIL);
-				nameToInode[content] = nInode;
 				int nBlock = allocateBlock(parent, nInode, FIL);
-				allocateEntry(parent, nInode, content);
+				
+				allocateEntry(parent, nInode, names.back());
 				cpy(fbs[nBlock].data, str,MAX_SIZE);
 				resize(nInode, str.size());
 			}
@@ -789,28 +729,29 @@ public:
 		}
 		if (opt == "pwd_r")
 		{
-			ret += print(curr,0);
+			ret += print(curr,0,true);
 		}
 		if (opt == "cpy")//cpy a b means b to a
 		{
 			if (!getAbsPath(str))
 				return "root path has no parent\n";
-			if (nameToInode.count(str))
+			pii strloc = nameToInode(str);//location of str
+			int strin = strloc.first, strp = strloc.second;
+			if (strin!=-1)
 			{
-				int sourIn = nameToInode[str];
-				if (inodes[sourIn].mode != FIL)
+				if (inodes[strin].mode != FIL)
 					return str + NON_FILE;
 				if (content == str)
 					return "destination and source is the same file\n";
-				string sourStr = fbs[inodes[sourIn].block].data;
-				if (nameToInode.count(content))
+				string sourStr = fbs[inodes[strin].block].data;
+				if (in!=-1)
 				{
-					int old = nameToInode[content],old_sz = inodes[old].sz;
-					if (!cpy(fbs[inodes[old].block].data, sourStr,MAX_SIZE))
+					int old_sz = inodes[in].sz;
+					if (!cpy(fbs[inodes[in].block].data, sourStr,MAX_SIZE))
 					{
 						return sourStr + TOO_LONG;
 					}
-					resize(old, (int)sourStr.size() - old_sz);
+					resize(in, (int)sourStr.size() - old_sz);
 				}
 				else
 				{
@@ -819,9 +760,9 @@ public:
 						return sourStr + TOO_LONG;
 					}
 					int nInode = allocateInode(FIL);
-					nameToInode[content] = nInode;
 					int nBlock = allocateBlock(parent, nInode, FIL);
-					allocateEntry(parent, nInode, content);
+					vector<string> names = split(content, "/");
+					allocateEntry(parent, nInode, names.back());
 					cpy(fbs[nBlock].data, sourStr, MAX_SIZE);
 					resize(nInode, sourStr.size());
 				}
@@ -833,20 +774,21 @@ public:
 		{
 			if (!getAbsPath(content))
 				return "root path has no parent\n";
-			if (nameToInode.count(str))
+			pii strloc = nameToInode(str);//location of str
+			int strin = strloc.first, strp = strloc.second;
+			if (strin!=-1)
 			{
-				int sourIn = nameToInode[str];
-				if (inodes[sourIn].mode != DIR)
+				if (inodes[strin].mode != DIR)
 					return str + NON_DIR;
-				if (nameToInode.count(content))
+				if (in!=-1)
 					return content + ALREADY_EXIST;
 				int nInode = allocateInode(DIR);
-				nameToInode[content] = nInode;
 				int nBlock = allocateBlock(parent, nInode, DIR);
-				initDirBlock(nInode, nBlock, parent, content, sub);
-				allocateEntry(parent, nInode, content);
-				cpy(nInode, sourIn);
-				resize(nInode, inodes[sourIn].sz);
+				vector<string> names = split(content, "/");
+				initDirBlock(nInode, nBlock, parent, names[content.size()-1], names[content.size() - 2]);
+				allocateEntry(parent, nInode, names[content.size() - 1]);
+				cpy(nInode, strin);
+				resize(nInode, inodes[strin].sz);
 			}
 			else
 				return str + NON_EXIST;

@@ -2,11 +2,7 @@
 //
 
 #include "stdafx.h"
-#include <iostream>
-#include <cstdlib>
 #include "FileManeger.h"
-
-
 
 int main()
 {
@@ -29,15 +25,8 @@ int main()
 			swap(content, str);//理解错题意了，这样改比较快
 		cout<<fm->exec(opt, content,str);
 		if (opt == "echo" || opt == "mkdir" || opt == "rm" || opt == "rmdir" || opt == "cpy" || opt == "cpydir")
-		{
-			cout << "write the change? y/n\n>>";
-			string ans;
-			cin >> ans;
-			if (ans == "y")
-			{
-				fm->exec("write", content, str);
-			}
-		}
+			fm->exec("write", content, str);
+
 	}
     return 0;
 }
