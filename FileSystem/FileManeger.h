@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <regex>
+#include "Util.h"
 using namespace std;
 
 class FileManeger
@@ -25,6 +26,8 @@ private:
 	const static string IS_EMPTY;
 	const static string ALREADY_EXIST;
 	const static string TOO_LONG;
+	const static string FULL_DIR;
+	const static string FULL_SYS;
 
 	const static set<string> REQUIRE_FILE;
 	const static set<string> REQUIRE_DIR;
@@ -42,14 +45,19 @@ private:
 		int mode = EMPTY;
 		int sz = 0;
 		int block = 0;
+		int nextInode = -1;//数组模拟链表，从而实现存放多个blocks
+		int useless = 0;
 		void read(FILE *f)
 		{
-			fscanf(f, " %d%d%d%d ", &id, &mode, &sz, &block);
+			fread(f, id, mode, sz, block);
+			for (int i = 0; i < 4; ++i)
+				fread(f,useless);
 		}
 		void print(FILE *f)
 		{
-			
-			fprintf(f, "%d %d %d %d ", id, mode, sz, block);
+			fwrite(f, id, mode, sz, block);
+			for (int i = 0; i < 4; ++i)
+				fwrite(f,useless);
 		}
 	};
 	struct FileBlock
@@ -74,10 +82,8 @@ private:
 		//这里只包含名字和索引信息，相当于只是虚拟的文件/文件夹
 		//文件/文件夹的实体需要用inode在Inode[]里找到对应索引，再通过索引找到block
 	};
-
 	FileBlock fbs[MAX_SIZE];
 	DirBlock dbs[MAX_SIZE];
-	//a little waste of memory
 
 	Inode inodes[MAX_SIZE];
 	string path;
@@ -94,38 +100,35 @@ private:
 	{
 		return inodes[inode].mode;
 	}
-	vector<string> split(const string &s, const string &pat)//朴素实现，无KMP 
+	
+	//覆盖所有可能情形,不需要对应情形时传适当的参数即可.
+	string check(const string &name,int parent,int requiredInodes,int requiredBlocks)
 	{
-		int szs = s.size(), szp = pat.size();
-		if (szs<szp)
-			return vector<string>();
-		vector<int> match;
-		for (int i = 0; i <= szs - szp; ++i)
+		if (name.size() >= PATH_SIZE)
+			return TOO_LONG;
+		if (parent!=-1)//不要求检查parent
 		{
-			bool b = true;
-			for (int j = 0; j<szp; ++j)
+			bool freeDir = false;
+			DirBlock &db = dbs[inodes[parent].block];
+			for (int i = 0; i<14; ++i)
 			{
-				if (s[i + j] != pat[j])
-				{
-					b = false;
-					break;
-				}
+				if (!db.dirs[i].name[0])
+					freeDir = true;
 			}
-			if (b)
-				match.push_back(i);
+			if (!freeDir)
+				return FULL_DIR;
 		}
-		match.push_back(szs);
-		int szm = match.size();
-		vector<string> ret;
-		int curr = 0;
-		for (int i = 0; i<szm; ++i)
+		for (int i = 0; i<MAX_SIZE; ++i)
 		{
-			ret.push_back(string(s.begin() + curr, s.begin() + match[i]));
-			curr = match[i] + szp;
+			if (!inodeBitmap[i])
+				--requiredInodes;
+			if (!blockBitmap[i])
+				--requiredBlocks;
 		}
-		return ret;
+		if (requiredBlocks > 0 || requiredInodes > 0)
+			return FULL_SYS;
+		return "";
 	}
-
 	typedef pair<int, int> pii;
 	pii nameToInode(const string &name)//first:self,second:parent
 	{
@@ -174,27 +177,10 @@ private:
 		}
 		return make_pair(self, parent);
 	}
-	//todo 文件名到inode也要有映射
 
 	map<int, int> blockToInode;
 
-	char encode(bool *beg,int len)//[)
-	{
-		int d = 0;
-		for (int i=0; i<len; ++i)
-		{
-			d |= beg[i] << (len - 1 - i);
-		}
-		return (char)d;
-	}
-	void decode(char c, bool *beg, int len)//[)
-	{
-		int d = (int)c;
-		for (int i = 0; i < len; ++i)
-		{
-			beg[i] = (1 << (len - 1 - i))&d;
-		}
-	}
+	
 	bool cpy(char *dest, const string &str,int maxSize)
 	{
 		if (str.size() >= maxSize)//由于'\0',不可相等
@@ -322,101 +308,56 @@ private:
 		}
 		return ret;
 	}
-	void writeEmpty(FILE *f,int cnt)
-	{
-		if (cnt == 0)
-			return;
-		fseek(f, cnt - 1, SEEK_CUR);
-		fputc(0, f);
-	}
+
 	void init()
 	{
-		FILE *f = fopen(path.c_str(), "w");
+		FILE *f = fopen(path.c_str(), "wb");
 		//superblock
 		for (int j = 0; j < 2; ++j)
 		{
-			fputc(1<<7, f);
-			writeEmpty(f, (MAX_SIZE>>3) - 1);
+			fwrite(f, static_cast<char>(0x80));
+			writeEmpty(f, MAX_SIZE - 1);
 		}
-		//fseek(f, 7 * 1024, SEEK_CUR);
-		int a = ftell(f);
-		int b = a;
 		//inode
 		Inode empty, dir;
 		empty.mode = EMPTY, dir.mode = DIR;
 		dir.print(f);
 		for (int i = 1; i < MAX_SIZE; ++i)
 			empty.print(f);
-		a = ftell(f);
-		b = a;
 		//block
 		writeEmpty(f, MAX_SIZE*MAX_SIZE);
-		a = ftell(f);
-		b = a;
 		fclose(f);
 	}
 	void write(FILE *f)
 	{
 		//superblock
-		for (int i = 0; i < MAX_SIZE; i += 8)
-		{
-			char c = encode(inodeBitmap + i, 8);
-			fputc(c, f);
-		}
-		for (int i = 0; i < MAX_SIZE; i += 8)
-		{
-			char c = encode(blockBitmap + i, 8);
-			fputc(c, f);
-		}
+		for (int i = 0; i < MAX_SIZE; ++i)
+			fwrite(f, inodeBitmap[i]);
+		for (int i = 0; i < MAX_SIZE; ++i)
+			fwrite(f, blockBitmap[i]);
 		//inode
 		for (int i = 0; i < MAX_SIZE; ++i)
-		{
-			Inode &in = inodes[i];
-			in.print(f);
-		}
+			inodes[i].print(f);
 		//block
 		for (int i = 0; i < MAX_SIZE; ++i)
 		{
 			if (blockToInode.count(i))
 			{
 				if (inodes[blockToInode[i]].mode == DIR)
-				{
-					DirBlock &db = dbs[i];
-					
 					for (int j = 0; j < 16; ++j)
 					{
-						for (int k = 0; k < PATH_SIZE; ++k)
-						{
-							if (!db.dirs[j].name[k])
-							{
-								writeEmpty(f, PATH_SIZE - k);
-								break;
-							}
-							fputc(db.dirs[j].name[k], f);
-						}
-						fprintf(f, "%d", db.dirs[j].inode);
+						fwrite(f, dbs[i].dirs[j].name);
+						fwrite(f, dbs[i].dirs[j].inode);
 					}
-					
-				}
 				else
-				{
-					FileBlock &fb = fbs[i];
-					for (int j = 0; j < MAX_SIZE; ++j)
-					{
-						if (!fb.data[j])
-						{
-							writeEmpty(f, MAX_SIZE - j);
-							break;
-						}
-						fputc(fb.data[j], f);
-					}
-				}
+					fwrite(f, fbs[i].data);
 			}
 			else
 				writeEmpty(f, MAX_SIZE);
 
 		}
 	}
+
 	int allocateInode(int mode)
 	{
 		int nInode = -1;
@@ -505,6 +446,7 @@ private:
 		}
 		return true;
 	}
+
 	void resize(int inode,int delta)
 	{
 		Inode &in = inodes[inode];
@@ -515,22 +457,17 @@ private:
 public:
 	FileManeger(const string &_path):path(_path)
 	{
-		FILE* f = fopen(_path.c_str(), "r");
+		FILE* f = fopen(_path.c_str(), "rb");
 		if (!f)
 		{
 			init();
-			f = fopen(_path.c_str(), "r");
+			f = fopen(_path.c_str(), "rb");
 		}
-		for (int i = 0; i < MAX_SIZE;i += 8)
-		{
-			char c = fgetc(f);
-			decode(c, inodeBitmap + i, 8);
-		}
-		for (int i = 0; i < MAX_SIZE; i += 8)
-		{
-			char c = fgetc(f);
-			decode(c, blockBitmap + i, 8);
-		}
+		for (int i = 0; i < MAX_SIZE; ++i)
+			fread(f, inodeBitmap[i]);
+		for (int i = 0; i < MAX_SIZE; ++i)
+			fread(f, blockBitmap[i]);
+		
 		for (int i = 0; i < MAX_SIZE; ++i)
 		{
 			inodes[i].read(f);
@@ -539,7 +476,6 @@ public:
 				blockToInode[inodes[i].block] = inodes[i].id;
 			}
 		}
-		fscanf(f," ");//多余空格
 		for (int i = 0; i < MAX_SIZE; ++i)
 		{
 			if (blockToInode.count(i))//not empty
@@ -547,23 +483,13 @@ public:
 				switch (inodes[blockToInode[i]].mode)
 				{
 				case FIL:
-					for (int j = 0; j < MAX_SIZE; ++j)
-					{
-						char c = fgetc(f);
-						fbs[i].data[j] = c;
-					}
+					fread(f,fbs[i].data);
 					break;
 				case DIR:
 					for (int j = 0; j < 16; ++j)
 					{
-						for (int k = 0; k < PATH_SIZE; ++k)
-						{
-							char c = fgetc(f);
-							dbs[i].dirs[j].name[k] = c;
-						}
-						int d;
-						fscanf(f, "%d", &d);
-						dbs[i].dirs[j].inode = d;
+						fread(f, dbs[i].dirs[j].name);
+						fread(f, dbs[i].dirs[j].inode);
 					}
 					break;
 				default:
@@ -571,9 +497,7 @@ public:
 				}
 			}
 			else//empty
-			{
 				fseek(f, MAX_SIZE, SEEK_CUR);
-			}
 		}
 
 		for (int i = 0; i < MAX_SIZE; ++i)
@@ -600,7 +524,7 @@ public:
 	}
 	~FileManeger()
 	{
-		FILE *f = fopen(path.c_str(), "w");
+		FILE *f = fopen(path.c_str(), "wb");
 		write(f);
 		fclose(f);
 	}
@@ -688,30 +612,26 @@ public:
 		}
 		if (opt == "echo")
 		{
+
 			if (in!=-1)
 			{
+				string chk=check("", -1, 0, ceil(1.0*str.size() / MAX_SIZE) - 1);
+				if (!chk.empty())
+					return chk;
 				int old_sz=inodes[in].sz;
-				if (cpy(fbs[inodes[in].block].data, str, MAX_SIZE))
-				{
-					return str + TOO_LONG;
-				}
+				cpy(fbs[inodes[in].block].data, str, MAX_SIZE);
 				resize(in, (int)str.size() - old_sz);
 			}
 			else
 			{
-				//四步:找空余的inode，空余的block，空余的dirs，修改map
+				//找空余的inode，空余的block，空余的dirs，修改map
 				vector<string> names = split(content, "/");
-				if (str.size() >= MAX_SIZE)
-				{
-					return str + TOO_LONG;
-				}
-				if (names.back().size() >= PATH_SIZE)
-				{
-					return content + TOO_LONG;
-				}
+				string chk = check(names.back(), parent, 1, ceil(1.0*str.size() / MAX_SIZE));
+				if (!chk.empty())
+					return chk;
+
 				int nInode = allocateInode(FIL);
 				int nBlock = allocateBlock(parent, nInode, FIL);
-				
 				allocateEntry(parent, nInode, names.back());
 				cpy(fbs[nBlock].data, str,MAX_SIZE);
 				resize(nInode, str.size());
@@ -723,7 +643,7 @@ public:
 		}
 		if (opt == "write")
 		{
-			FILE *f = fopen(path.c_str(), "w");
+			FILE *f = fopen(path.c_str(), "wb");
 			write(f);
 			fclose(f);
 		}
@@ -816,7 +736,9 @@ const string FileManeger::NON_FILE = " is not a file\n";
 const string FileManeger::NON_DIR = " is not a directory\n";
 const string FileManeger::IS_EMPTY = " is empty\n";
 const string FileManeger::ALREADY_EXIST = " already exists\n";
-const string FileManeger::TOO_LONG = " is too long\n";
+const string FileManeger::TOO_LONG = " directory name is too long\n";
+const string FileManeger::FULL_DIR = " this dir is full\n";
+const string FileManeger::FULL_SYS = " the system doesn't have enoug capacity\n";
 
 const set<string> FileManeger::REQUIRE_DIR = {"cd","rmdir","ls_r"};
 const set<string> FileManeger::REQUIRE_FILE = {"cat","rm"};

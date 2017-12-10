@@ -26,7 +26,6 @@ int main()
 		cout<<fm->exec(opt, content,str);
 		if (opt == "echo" || opt == "mkdir" || opt == "rm" || opt == "rmdir" || opt == "cpy" || opt == "cpydir")
 			fm->exec("write", content, str);
-
 	}
     return 0;
 }
