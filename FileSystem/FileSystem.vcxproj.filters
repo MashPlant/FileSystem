@@ -38,5 +38,11 @@
     <ClCompile Include="FileSystem.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="FileManeger.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Util.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
