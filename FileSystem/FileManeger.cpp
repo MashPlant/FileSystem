@@ -1,9 +1,11 @@
 #include "stdafx.h"
 #include "FileManeger.h"
+
 using namespace std;
 const string FileManeger::NON_EXIST = " No such file or directory\n";
 const string FileManeger::NON_FILE = " is not a file\n";
 const string FileManeger::NON_DIR = " is not a directory\n";
+const string FileManeger::NON_ZIP = " is not a zip\n";
 const string FileManeger::IS_EMPTY = " is empty\n";
 const string FileManeger::ALREADY_EXIST = " already exists\n";
 const string FileManeger::TOO_LONG = " directory name is too long\n";
@@ -13,9 +15,30 @@ const string FileManeger::FULL_SYS = " the system doesn't have enoug capacity\n"
 const set<string> FileManeger::REQUIRE_DIR = { "cd","rmdir","ls_r" };
 const set<string> FileManeger::REQUIRE_FILE = { "cat","rm","append" };
 const set<string> FileManeger::REQUIRE_EXIST = { "cd","ls","rmdir","cat","rm","ls_r","append" };
-const set<string> FileManeger::REQUIRE_PARENT = { "echo","mkdir","cpy","cpydir" };
-const set<string> FileManeger::ALL_COMMAND = { "write","pwd","cd","mkdir","ls","ls_r","rmdir","echo","cat","rm","pwd_r","cpy","cpydir","find","find_re","append" };
+const set<string> FileManeger::REQUIRE_PARENT = { "echo","mkdir","cpy","cpydir","zip" ,"dezip"};
+const set<string> FileManeger::REQUIRE_WRITE = { "echo" ,"mkdir" ,"rm" ,"rmdir" ,"cpy" ,"cpydir" ,"append" ,"zip","dezip" };
 
+const map<string, int> FileManeger::ALL_COMMAND =
+{ {"time",1},{"exit",1},{"write",1},{"pwd",1},{"cd",2},{"mkdir",2},{"ls",2},{"ls_r",2},{"rmdir",2},{"echo",3},{"cat",2},{"rm",2},{"pwd_r",1},{"cpy",3},{ "zip",3 },{ "dezip",3 },{"cpydir",3},{"find",2},{"find_re",2},{"append",3} };
+
+inline FileManeger::DirBlock& FileManeger::getDBFromInode(int inode)
+{
+	return blocks[inodes[inode].block].db;
+}
+inline FileManeger::DirBlock& FileManeger::getDBFromIndex(int index)
+{
+	return blocks[index].db;
+}
+
+inline FileManeger::FileBlock& FileManeger::getFBFromInode(int inode)
+{
+	return blocks[inodes[inode].block].fb;
+}
+
+inline FileManeger::FileBlock& FileManeger::getFBFromIndex(int index)
+{
+	return blocks[index].fb;
+}
 
 inline int FileManeger::getP(int inode)
 {
@@ -31,20 +54,17 @@ inline string FileManeger::getData(int inode)
 {
 	string ret;
 	for (int i = 0; i < inodes[inode].cnt; ++i)
-	{
-		ret += fbs[inodes[inode].block + i].data;
-	}
+		ret += getFBFromIndex(inodes[inode].block + i).data;
 	return ret;
 }
 
 inline string FileManeger::getName(int inode)
 {
 	if (getMode(inode) == DIR)
-		return dbs[inodes[inode].block].dirs[14].name;
-	if (getMode(inode) == FIL)
+		return inode ? getDBFromInode(inode).dirs[14].name : "/";
+	if (getMode(inode) == FIL|| getMode(inode) == ZIP)
 	{
-		int p = getP(inode);
-		DirBlock &db = dbs[p];
+		DirBlock &db = getDBFromInode(getP(inode));
 		for (int i = 0; i<14; ++i)
 		{
 			if (db.dirs[i].inode == inode)
@@ -61,7 +81,7 @@ string FileManeger::check(const string &name, int parent, int requiredInodes, in
 	if (parent != -1)//不要求检查parent
 	{
 		bool freeDir = false;
-		DirBlock &db = dbs[inodes[parent].block];
+		DirBlock &db = getDBFromInode(parent);
 		for (int i = 0; i<14; ++i)
 		{
 			if (!db.dirs[i].name[0])
@@ -109,12 +129,12 @@ FileManeger::pii FileManeger::nameToInode(const string &name)//first:self,second
 		bool found = false;
 		for (int j = 0; j < 14; ++j)
 		{
-			if (getMode(self) == FIL)//如果真的要找文件，只可能在最后一项出现文件，此时i循环已退出
+			if (getMode(self) == FIL|| getMode(self) == ZIP)//如果真的要找文件，只可能在最后一项出现文件，此时i循环已退出
 				return make_pair(-1, -1);
-			string child = dbs[inodes[self].block].dirs[j].name;
+			string child = getDBFromInode(self).dirs[j].name;
 			if (!child.empty() && child == names[i])
 			{
-				self = dbs[inodes[self].block].dirs[j].inode;
+				self = getDBFromInode(self).dirs[j].inode;
 				if (i + 1 != names.size())
 					parent = self;
 				found = true;
@@ -133,7 +153,7 @@ FileManeger::pii FileManeger::nameToInode(const string &name)//first:self,second
 
 void FileManeger::remove(int inode)
 {
-	if (getMode(inode) == FIL)
+	if (getMode(inode) == FIL|| getMode(inode) == ZIP)
 	{
 		Inode &in = inodes[inode];
 		if (inode != 0)
@@ -145,8 +165,8 @@ void FileManeger::remove(int inode)
 				blockToInode.erase(inodes[inode].block + i);
 			}
 		}
-		FileBlock &fb = fbs[inodes[inode].block];
-		DirBlock &p = dbs[inodes[getP(inode)].block];
+		inodes[getP(inode)].t = time(nullptr);
+		DirBlock &p = getDBFromInode(getP(inode));
 		for (int i = 0; i < 14; ++i)
 			if (p.dirs[i].inode == inode)
 			{
@@ -161,18 +181,17 @@ void FileManeger::remove(int inode)
 			inodeBitmap[inode] = false;
 			blockBitmap[inodes[inode].block] = false;
 		}
-		DirBlock &db = dbs[inodes[inode].block];
+		DirBlock &db = getDBFromInode(inode);
 		if (inode != 0)
 		{
-			DirBlock &p = dbs[inodes[getP(inode)].block];
+			inodes[getP(inode)].t = time(nullptr);
+			DirBlock &p = getDBFromInode(getP(inode));
 			for (int i = 0; i < 14; ++i)
-			{
 				if (p.dirs[i].inode == inode)
 				{
 					memset(p.dirs[i].name, 0, sizeof(p.dirs[i].name));
 					break;
 				}
-			}
 		}
 		blockToInode.erase(inodes[inode].block);
 		for (int i = 0; i < 14; ++i)
@@ -185,8 +204,8 @@ void FileManeger::cpy(int dest, int sour)
 {
 	if (getMode(sour) == DIR)
 	{
-		DirBlock &ddb = dbs[inodes[dest].block];
-		DirBlock &sdb = dbs[inodes[sour].block];
+		DirBlock &ddb = getDBFromInode(dest);
+		DirBlock &sdb = getDBFromInode(sour);
 		for (int i = 0; i < 14; ++i)
 		{
 			string name = sdb.dirs[i].name;
@@ -211,16 +230,16 @@ string FileManeger::print(int inode, int shift, bool r)
 	string ret, space;
 	for (int i = 0; i < shift; ++i)
 		space += "   ";
-	if (getMode(inode) == FIL)
+	if (getMode(inode) == FIL|| getMode(inode) == ZIP)
 		return "";
-	Inode &in = inodes[inode];
-	DirBlock &db = dbs[in.block];
+	DirBlock &db = getDBFromInode(inode);
 	for (int i = 0; i < 14; ++i)
 	{
 		string child = db.dirs[i].name;
 		if (!child.empty())
 		{
-			ret += space + (getMode(db.dirs[i].inode) == DIR ? "/" : "") + child + '\n';
+			ret += space + (getMode(db.dirs[i].inode) == DIR ? "/" : "") + child;
+			ret += showTime ? string(" last modified:") + ctime(&inodes[db.dirs[i].inode].t) : "\n";
 			if (r)
 				ret += print(db.dirs[i].inode, shift + 1, r);
 		}
@@ -230,10 +249,9 @@ string FileManeger::print(int inode, int shift, bool r)
 string FileManeger::find(int inode, const string &match, regex *re)
 {
 	string ret;
-	if (getMode(inode) == FIL)
+	if (getMode(inode) == FIL|| getMode(inode) == ZIP)
 		return "";
-	Inode &in = inodes[inode];
-	DirBlock &db = dbs[in.block];
+	DirBlock &db = getDBFromInode(inode);
 	for (int i = 0; i < 14; ++i)
 	{
 		string child = db.dirs[i].name;
@@ -258,7 +276,7 @@ void FileManeger::init()
 	}
 	//inode
 	Inode empty, dir;
-	empty.mode = EMPTY, dir.mode = DIR;
+	empty.mode = EMPTY, dir.mode = DIR, dir.t = time(nullptr);
 	dir.print(f);
 	for (int i = 1; i < MAX_SIZE; ++i)
 		empty.print(f);
@@ -283,9 +301,9 @@ void FileManeger::write(FILE *f)
 		{
 			if (getMode(blockToInode[i]) == DIR)
 				for (int j = 0; j < 16; ++j)
-					fwrite(f, dbs[i].dirs[j].name, dbs[i].dirs[j].inode);
+					fwrite(f, getDBFromIndex(i).dirs[j].name, getDBFromIndex(i).dirs[j].inode);
 			else
-				fwrite(f, fbs[i].data);
+				fwrite(f, getFBFromIndex(i).data);
 		}
 		else
 			writeEmpty(f, MAX_SIZE);
@@ -298,7 +316,7 @@ bool FileManeger::getAbsPath(string &content)
 	{
 		if (content[0] == '.')
 		{
-			DirBlock &db = dbs[inodes[curr].block];
+			DirBlock &db = getDBFromInode(curr);
 			if (content.size() >= 2 && content[1] == '.')
 			{
 				if (curr == 0)
@@ -329,18 +347,18 @@ void FileManeger::resize(int inode, int delta)
 FileManeger::pii FileManeger::count(int inode)//first:inode, second block
 {
 	int kind = getMode(inode);
-	if (kind == FIL)
+	if (kind == FIL|| getMode(inode) == ZIP)
 	{
 		return make_pair(1, inodes[inode].cnt);
 	}
 	if (kind == DIR)
 	{
 		pii ret(0, 0);
-		for (int i = 0; i<14; ++i)
+		for (int i = 0; i < 14; ++i)
 		{
-			if (dbs[inodes[inode].block].dirs[i].name[0] != '\0')
+			if (getDBFromInode(inode).dirs[i].name[0] != '\0')
 			{
-				pii temp = count(dbs[inodes[inode].block].dirs[i].inode);
+				pii temp = count(getDBFromInode(inode).dirs[i].inode);
 				ret.first += temp.first;
 				ret.second += temp.second;
 			}
@@ -366,7 +384,7 @@ FileManeger::FileManeger(const string &_path) :path(_path)
 	for (int i = 0; i < MAX_SIZE; ++i)
 	{
 		inodes[i].read(f);
-		if (getMode(i) == FIL)
+		if (getMode(i) == FIL || getMode(i) == ZIP)
 		{
 			for (int j = 0; j < inodes[i].cnt; ++j)
 				blockToInode[inodes[i].block + j] = inodes[i].id;
@@ -380,12 +398,13 @@ FileManeger::FileManeger(const string &_path) :path(_path)
 		{
 			switch (getMode(blockToInode[i]))
 			{
+			case ZIP:
 			case FIL:
-				fread(f, fbs[i].data);
+				fread(f, getFBFromIndex(i).data);
 				break;
 			case DIR:
 				for (int j = 0; j < 16; ++j)
-					fread(f, dbs[i].dirs[j].name, dbs[i].dirs[j].inode);
+					fread(f, getDBFromIndex(i).dirs[j].name, getDBFromIndex(i).dirs[j].inode);
 				break;
 			default:
 				break;
@@ -403,10 +422,25 @@ FileManeger::~FileManeger()
 	fclose(f);
 }
 
-string FileManeger::exec(string opt, string content, string str)
+string FileManeger::exec(vector<string> command)
 {
+	string opt = command[0], content, str;
+	string parameter;
+	if (command.size() >= 2)
+	{
+		content = command[1];
+		if (command.size() >= 3)
+			str = command[2];
+		if (command.size() >= 4)
+			parameter = command[3];
+		if (opt == "echo" || opt == "append")
+			swap(content, str);//看错题了，这样改比较快
+	}
+
 	if (!ALL_COMMAND.count(opt))
 		return opt + " invalid command\n";
+	if (ALL_COMMAND.at(opt) > command.size())//允许附加参数
+		return "wrong arguments number\n";
 	if (!getAbsPath(content))
 		return "root path has no parent\n";
 
@@ -438,6 +472,14 @@ string FileManeger::exec(string opt, string content, string str)
 				return content + NON_FILE;
 		}
 	}
+	if (opt == "time")
+	{
+		showTime = !showTime;
+	}
+	if (opt == "exit")
+	{
+		return "exited";
+	}
 	if (opt == "pwd")
 	{
 		ret += print(curr, 0, false);
@@ -460,15 +502,21 @@ string FileManeger::exec(string opt, string content, string str)
 	{
 		if (getMode(in) == DIR)
 		{
-			ret += content + " is a directory\n";
+			ret += content + " is a directory " + (showTime ? string(" last modified:") + ctime(&inodes[in].t) : "\n");
 			ret += "the size of " + content + " is " + to_string(inodes[in].sz) + "\n";
-			ret += print(in, 0, opt == "ls_r");
+			ret += getName(in) + "\n";
+			ret += print(in, 1, opt == "ls_r");
 		}
-		else
+		else if (getMode(in) == FIL)
 		{
-			ret += content + " is a file\n";
+			ret += content + " is a file " + (showTime ? string(" last modified:") + ctime(&inodes[in].t) : "\n");
 			ret += "the size of " + content + " is " + to_string(inodes[in].sz) + "\n";
 			ret += getData(in) + string("\n");
+		}
+		else if (getMode(in) == ZIP)
+		{
+			ret += content + " is a zip " +(showTime ? string(" last modified:") + ctime(&inodes[in].t) : "\n");
+			ret += "the size of " + content + " is " + to_string(inodes[in].sz) + "\n";
 		}
 	}
 	if (opt == "rmdir" || opt == "rm")
@@ -493,7 +541,7 @@ string FileManeger::exec(string opt, string content, string str)
 			resize(in, -inodes[in].sz);
 			if (str == "\"\"")
 				str.clear();
-			int nInode = allocator.createFile(parent, name, str);
+			int nInode = allocator.createFile(parent, name, str, parameter == "z");
 			resize(nInode, str.size());
 		}
 		else
@@ -505,17 +553,13 @@ string FileManeger::exec(string opt, string content, string str)
 				return chk;
 			if (str == "\"\"")
 				str.clear();
-			int nInode = allocator.createFile(parent, names.back(), str);
+			int nInode = allocator.createFile(parent, names.back(), str, parameter == "z");
 			resize(nInode, str.size());
 		}
 	}
 	if (opt == "cat")
 	{
-		for (int i = 0; i<inodes[in].cnt; ++i)
-		{
-			ret += fbs[inodes[in].block + i].data;
-		}
-		ret += '\n';
+		ret = getData(in) + "\n";
 	}
 	if (opt == "write")
 	{
@@ -528,7 +572,7 @@ string FileManeger::exec(string opt, string content, string str)
 		ret += print(curr, 0, true);
 	}
 	//考虑到inode和block可能用尽，copy操作时也进行检查
-	if (opt == "cpy")//cpy a b means b to a
+	if (opt == "cpy" || opt == "zip" || opt == "dezip")//cpy/zip/dezip a b means b to a
 	{
 		if (!getAbsPath(str))
 			return "root path has no parent\n";
@@ -536,14 +580,23 @@ string FileManeger::exec(string opt, string content, string str)
 		int sourcein = sourceloc.first, sourcep = sourceloc.second;
 		if (sourcein != -1)
 		{
-			if (getMode(sourcein) != FIL)
+			if ((opt == "cpy" || opt == "zip") && getMode(sourcein) != FIL)
 				return str + NON_FILE;
+			if (opt == "dezip"&&getMode(sourcein) != ZIP)
+				return str + NON_ZIP;
 			if (content == str)
 				return "destination and source is the same file\n";
-			string source;
-			for (int i = 0; i < inodes[sourcein].cnt; ++i)
-				source += fbs[inodes[sourcein].block + i].data;
-			return exec("echo", content, source);
+			string source = getData(sourcein);
+			if (opt == "cpy")
+				return exec({ "echo", source, content });
+			if (opt == "zip")
+			{
+				if (!source.empty())
+					return exec({ "echo", zip(source), content,"z" });
+				else return str + IS_EMPTY;
+			}
+			if (opt == "dezip")
+				return exec({ "echo", dezip(source), content });
 		}
 		else
 			return str + NON_EXIST;
@@ -602,6 +655,8 @@ string FileManeger::exec(string opt, string content, string str)
 		int nInode = allocator.createFile(parent, name, source);
 		resize(nInode, source.size());
 	}
+	if (REQUIRE_WRITE.count(opt))//中途return则不必执行写操作
+		exec({ "write" });
 	return ret;
 }
 
@@ -617,6 +672,7 @@ int FileManeger::Allocator::allocateInode(int mode, int p)
 			self->inodes[i].mode = mode;
 			self->inodes[i].sz = 0;
 			self->inodes[i].p = p;
+			self->inodes[i].t = time(nullptr);
 			nInode = i;
 			break;
 		}
@@ -624,7 +680,7 @@ int FileManeger::Allocator::allocateInode(int mode, int p)
 	return nInode;
 }
 
-int FileManeger::Allocator::allocateBlock(int parent, int nInode, int mode, int size)
+int FileManeger::Allocator::allocateBlock(int nInode,int size)
 {
 	int nBlock = -1;
 	for (int i = 0; i <= MAX_SIZE - size; ++i)
@@ -656,36 +712,41 @@ int FileManeger::Allocator::allocateBlock(int parent, int nInode, int mode, int 
 //约定所有的parent都是指parent的inode
 void FileManeger::Allocator::allocateEntry(int parent, int nInode, const string &content)
 {
+	self->inodes[parent].t = time(nullptr);
 	parent = self->inodes[parent].block;//此前inode与block一对一对应故而没有出问题
 	for (int i = 0; i < 14; ++i)
-		if (self->dbs[parent].dirs[i].name[0] == '\0')
+		if (self->getDBFromIndex(parent).dirs[i].name[0] == '\0')
 		{
-			::cpy(self->dbs[parent].dirs[i].name, content, PATH_SIZE);
-			self->dbs[parent].dirs[i].inode = nInode;
+			::cpy(self->getDBFromIndex(parent).dirs[i].name, content, PATH_SIZE);
+			self->getDBFromIndex(parent).dirs[i].inode = nInode;
 			break;
 		}
 }
 
 void FileManeger::Allocator::initDirBlock(int nInode, int nBlock, int parent, const string &content, const string &parent_name)
 {
-	self->dbs[nBlock].dirs[14].inode = nInode;
-	::cpy(self->dbs[nBlock].dirs[14].name, content, PATH_SIZE);
-	self->dbs[nBlock].dirs[15].inode = parent;
-	::cpy(self->dbs[nBlock].dirs[15].name, parent_name, PATH_SIZE);
+	DirBlock &db = self->getDBFromIndex(nBlock);
+	for (int i = 0; i < 14; ++i)
+		memset(db.dirs[i].name, 0, MAX_SIZE * sizeof(char));
+	db.dirs[14].inode = nInode;
+	::cpy(db.dirs[14].name, content, PATH_SIZE);
+	db.dirs[15].inode = parent;
+	::cpy(db.dirs[15].name, parent_name, PATH_SIZE);
 }
 
-int FileManeger::Allocator::createFile(int parent, const string &name, string source)
+int FileManeger::Allocator::createFile(int parent, const string &name, string source, bool iszip)
 {
-	int nInode = allocateInode(FIL, parent);
-	int nBlock = allocateBlock(parent, nInode, FIL, ceil(1.0*source.size() / MAX_SIZE));
+	int nInode = allocateInode(iszip ? ZIP : FIL, parent);
+	int nBlock = allocateBlock(nInode,ceil(1.0*source.size() / MAX_SIZE));
+	//本质上zip也是文件,只需要在inode里特别标记一下
 	//一次性申请了一个区间内的block,如果source为空，不会影响除了inodes[nInode]之外的地方
 	allocateEntry(parent, nInode, name);
 	if (!source.empty())
-		::cpy(self->fbs[nBlock].data, source, MAX_SIZE - 1);//考虑'\0'
+		::cpy(self->getFBFromIndex(nBlock).data, source, MAX_SIZE - 1);//考虑'\0'
 	while (source.size() >= MAX_SIZE)
 	{
 		source = source.substr(MAX_SIZE - 1);
-		::cpy(self->fbs[++nBlock].data, source, MAX_SIZE - 1);
+		::cpy(self->getFBFromIndex(++nBlock).data, source, MAX_SIZE - 1);
 	}
 	return nInode;
 }
@@ -693,7 +754,7 @@ int FileManeger::Allocator::createFile(int parent, const string &name, string so
 int FileManeger::Allocator::createDir(int parent, const string &name, const string &parentName)
 {
 	int nInode = allocateInode(DIR, parent);
-	int nBlock = allocateBlock(parent, nInode, DIR);
+	int nBlock = allocateBlock(nInode);
 	initDirBlock(nInode, nBlock, parent, name, parentName);
 	allocateEntry(parent, nInode, name);
 	return nInode;

@@ -5,6 +5,7 @@
 #include <cstdlib>
 
 std::vector<std::string> split(const std::string &s, const std::string &pat);
+std::vector<std::string> readLine();
 char encode(bool *beg, int len);//[)
 void decode(char c, bool *beg, int len);//[)
 void writeEmpty(FILE *f, int cnt);
@@ -69,6 +70,5 @@ void fwrite(FILE *f, const char(&s)[N])
 		}
 	}
 }
-
 
 #endif

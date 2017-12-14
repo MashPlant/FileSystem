@@ -142,6 +142,7 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="Util.h" />
+    <ClInclude Include="Zipper.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="FileManeger.cpp" />

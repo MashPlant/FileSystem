@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "Util.h"
 #include <algorithm>
+#include <iostream>
+using namespace std;
 
 void writeEmpty(FILE *f, int cnt)
 {
@@ -28,19 +30,27 @@ void decode(char c, bool *beg, int len)//[)
 	}
 }
 
-void cpy(char *dest, const std::string &str, int maxSize)
+void cpy(char *dest, const string &str, int maxSize)
 {
 	maxSize = std::min(maxSize, (int)str.size());
 	memcpy(dest, str.c_str(), maxSize * sizeof(char));
 	dest[maxSize] = '\0';
 }
 
-std::vector<std::string> split(const std::string &s, const std::string &pat)//朴素实现，无KMP 
+vector<string> readLine()
+{
+	vector<string> ret;
+	string temp;
+	getline(cin, temp);
+	return split(temp, " ");
+}
+
+vector<string> split(const string &s, const string &pat)//朴素实现，无KMP 
 {
 	int szs = s.size(), szp = pat.size();
 	if (szs<szp)
-		return std::vector<std::string>();
-	std::vector<int> match;
+		return vector<string>();
+	vector<int> match;
 	for (int i = 0; i <= szs - szp; ++i)
 	{
 		bool b = true;
@@ -57,11 +67,11 @@ std::vector<std::string> split(const std::string &s, const std::string &pat)//朴
 	}
 	match.push_back(szs);
 	int szm = match.size();
-	std::vector<std::string> ret;
+	vector<string> ret;
 	int curr = 0;
 	for (int i = 0; i<szm; ++i)
 	{
-		ret.push_back(std::string(s.begin() + curr, s.begin() + match[i]));
+		ret.push_back(string(s.begin() + curr, s.begin() + match[i]));
 		curr = match[i] + szp;
 	}
 	return ret;

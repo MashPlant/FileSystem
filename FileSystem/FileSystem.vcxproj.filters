@@ -30,6 +30,9 @@
     <ClInclude Include="Util.h">
       <Filter>源文件</Filter>
     </ClInclude>
+    <ClInclude Include="Zipper.h">
+      <Filter>源文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">

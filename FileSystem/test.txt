@@ -1,0 +1,17 @@
+mkdir /home
+mkdir /home/a
+echo helloworld /home/b
+cd /home
+pwd
+ls ./b
+rm ./b
+echo helloworld ./b
+zip ./b.zip ./b
+dezip ./dezipb ./b.zip
+cpy ../outb ./dezipb
+cd ..
+cpydir /anotherhome /home
+rmdir /home
+ls_r /
+exit
+ 
