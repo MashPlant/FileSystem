@@ -23,7 +23,8 @@ inline FileManager::DirBlock& FileManager::getDBFromInode(int inode) { return bl
 inline FileManager::DirBlock& FileManager::getDBFromIndex(int index) { return blocks[index].db; }
 inline FileManager::FileBlock& FileManager::getFBFromInode(int inode) { return blocks[inodes[inode].block].fb; }
 inline FileManager::FileBlock& FileManager::getFBFromIndex(int index) { return blocks[index].fb; }
-inline int FileManager::getP(int inode) { return inodes[inode].p; }inline int FileManager::getMode(int inode) { return inodes[inode].mode; }
+inline int FileManager::getP(int inode) { return inodes[inode].p; }
+inline int FileManager::getMode(int inode) { return inodes[inode].mode; }
 
 inline string FileManager::getData(int inode,bool full)
 {
@@ -201,7 +202,7 @@ string FileManager::find(int inode, const string &match, regex *re)
 
 void FileManager::init()
 {
-	FILE *f = fopen(path.c_str(), "wb");
+	FILE *f = open(path.c_str(), "wb");
 	//superblock
 	for (int j = 0; j < 2; ++j)
 	{
@@ -220,50 +221,10 @@ void FileManager::init()
 }
 void FileManager::write(FILE *f)
 {
-	//clock_t beg = clock();
-	//superblock
-	for (int i = 0; i < MAX_SIZE; ++i)
-		fwrite(f, inodeBitmap[i]);
-	for (int i = 0; i < MAX_SIZE; ++i)
-		fwrite(f, blockBitmap[i]);
-	//std::cout << clock() - beg<<endl;
-	//beg = clock();
-	//inode
-	for (int i = 0; i < MAX_SIZE; ++i)
-		inodes[i].print(f);
-	//std::cout << clock() - beg << endl;
-	//clock_t empty_time = 0;
-	//block
-	int last = MAX_SIZE;
-	for (; blockToInode[last - 1] == -1; --last);
-	for (int i = 0; i < MAX_SIZE; ++i)
-	{
-		if (i==last)
-		{
-			writeEmpty(f, MAX_SIZE*(MAX_SIZE - last));
-			break;
-		}
-		if (blockToInode[i] != -1)
-		{
-			int mode = getMode(blockToInode[i]);
-			switch (mode)
-			{
-			case DIR:
-				for (int j = 0; j < 16; ++j)
-					fwrite(f, getDBFromIndex(i).dirs[j].name, getDBFromIndex(i).dirs[j].inode);
-				break;
-			case ZIP:
-			case FIL:
-				fwrite(f, getFBFromIndex(i).data, mode == ZIP);
-				
-				break;
-			}
-		}
-		else
-			writeEmpty(f, MAX_SIZE);
-	}	
-	//std::cout << clock() - beg << endl;
-	//beg = clock();
+	fwrite(inodeBitmap, sizeof(bool), MAX_SIZE, f);
+	fwrite(blockBitmap, sizeof(bool), MAX_SIZE, f);
+	fwrite(inodes, sizeof(Inode), MAX_SIZE, f);
+	fwrite(blocks, sizeof(Block), MAX_SIZE, f);
 }
 
 bool FileManager::getAbsPath(string &content,int _curr)
@@ -341,7 +302,7 @@ FileManager::FileManager(const string &_path) :path(_path)
 	if (!f)
 	{
 		init();
-		f = fopen(_path.c_str(), "rb");
+		f = open(_path.c_str(), "rb");
 	}
 	for (int i = 0; i < MAX_SIZE; ++i)
 		fread(f, inodeBitmap[i]);
@@ -352,10 +313,8 @@ FileManager::FileManager(const string &_path) :path(_path)
 	{
 		inodes[i].read(f);
 		if (getMode(i) == FIL || getMode(i) == ZIP)
-		{
 			for (int j = 0; j < inodes[i].cnt; ++j)
 				blockToInode[inodes[i].block + j] = inodes[i].id;
-		}
 		else
 			blockToInode[inodes[i].block] = inodes[i].id;
 	}
@@ -382,8 +341,7 @@ FileManager::FileManager(const string &_path) :path(_path)
 }
 FileManager::~FileManager()
 {
-	FILE *f;
-	fopen_s(&f, path.c_str(), "wb");
+	FILE *f = open(path.c_str(), "wb");
 	write(f);
 	fclose(f);
 }
@@ -526,8 +484,7 @@ string FileManager::exec(vector<string> command)
 	}
 	if (opt == "write")
 	{
-		FILE *f;// = fopen(path.c_str(), "wb");
-		fopen_s(&f, path.c_str(), "wb");
+		FILE *f = open(path.c_str(), "wb");
 		write(f);
 		fclose(f);
 	}
@@ -719,7 +676,7 @@ int FileManager::Allocator::createDir(int parent, const string &name, const stri
 	return nInode;
 }
 
-string FileManager::Allocator::check(const string &name, int parent, int requiredInodes, int requiredBlocks)
+string FileManager::Allocator::check(const string &name, int parent, int requiredinodes, int requiredBlocks)
 {
 	if (name.size() >= PATH_SIZE)
 		return TOO_LONG;
@@ -744,7 +701,7 @@ string FileManager::Allocator::check(const string &name, int parent, int require
 			}
 		if (free) requiredBlocks = 0;
 	}
-	for (int i = 0; i <= MAX_SIZE - requiredInodes; ++i)
+	for (int i = 0; i <= MAX_SIZE - requiredinodes; ++i)
 	{
 		bool free = true;
 		for (int j = 0; j < requiredBlocks; ++j)
@@ -753,9 +710,9 @@ string FileManager::Allocator::check(const string &name, int parent, int require
 				free = false;
 				break;
 			}
-		if (free) requiredInodes = 0;
+		if (free) requiredinodes = 0;
 	}
-	if (requiredBlocks > 0 || requiredInodes > 0)
+	if (requiredBlocks > 0 || requiredinodes > 0)
 		return FULL_SYS;
 	return "";
 }

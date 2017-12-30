@@ -8,7 +8,6 @@
 #include <ctime>
 #include "Util.h"
 #include "Zipper.h"
-#include <memory>
 
 class FileManager
 {
@@ -38,9 +37,6 @@ private:
 	const static std::set<std::string> REQUIRE_WRITE;
 	const static std::map<std::string, int> ALL_COMMAND;
 	
-	bool inodeBitmap[MAX_SIZE];
-	bool blockBitmap[MAX_SIZE];
-	int blockToInode[MAX_SIZE];
 	int curr = 0;
 	bool showTime = false;
 	typedef std::pair<int, int> pii;
@@ -54,14 +50,8 @@ private:
 		int cnt = 0;//占据连续的一片block
 		int p = 0 ;
 		time_t t = 0;
-		void read(FILE *f)
-		{
-			fread(f, id, mode, sz, block, cnt, p, t);
-		}
-		void print(FILE *f)
-		{
-			fwrite(f, id, mode, sz, block, cnt, p, t);
-		}
+		void read(FILE *f) { fread(f, id, mode, sz, block, cnt, p, t); }
+		void print(FILE *f) { fwrite(f, id, mode, sz, block, cnt, p, t); }
 	};
 	struct FileBlock
 	{
@@ -109,11 +99,13 @@ private:
 	Zipper zip;
 	DeZipper dezip;
 
+	bool inodeBitmap[MAX_SIZE];
+	bool blockBitmap[MAX_SIZE];
+	int blockToInode[MAX_SIZE];
 	Block blocks[MAX_SIZE];
 	Inode inodes[MAX_SIZE];
+		
 	std::string path;
-
-	//std::shared_ptr<FileManager> prev;
 
 	int getP(int inode);
 	int getMode(int inode);

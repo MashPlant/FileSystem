@@ -19,7 +19,6 @@ void fwrite(FILE *f, const T &t, const Args&... args)
 	fwrite(f, args...);
 }
 
-
 inline std::vector<std::string> split(const std::string &s, const std::string &pat) 
 {
 	std::vector<std::string> ret;
@@ -81,25 +80,11 @@ void fread(FILE *f,char (&s)[N])
 	fread(&s, sizeof(char), N, f);
 }
 
-template<size_t N>
-void fwrite(FILE *f, const char(&s)[N], bool full = false)
+inline FILE* open(const char *path,const char *mode)
 {
-	//fwrite(s, sizeof(char), N, f);
-	if (full)
-	{
-		for (int i = 0; i < N; ++i)
-			fwrite(f, s[i]);
-		return;
-	}
-	for (int i = 0; i < N; ++i)
-	{
-		if (s[i])
-			fwrite(f, s[i]);
-		else
-		{
-			writeEmpty(f, N - i);
-			break;
-		}
-	}
+	FILE *f = nullptr;
+	while (!f)
+		f = fopen(path, mode);
+	return f;
 }
 #endif
