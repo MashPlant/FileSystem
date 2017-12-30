@@ -3,16 +3,11 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
-
-std::vector<std::string> split(const std::string &s, const std::string &pat);
-std::vector<std::string> readLine();
-char encode(bool *beg, int len);//[)
-void decode(char c, bool *beg, int len);//[)
-void writeEmpty(FILE *f, int cnt);
-void cpy(char *dest, const std::string &str, int maxSize);
+#include <algorithm>
+#include <iostream>
 
 template<typename T>
-void fwrite(FILE *f,const T &t)
+void fwrite(FILE *f, const T &t)
 {
 	fwrite(static_cast<void const*>(&t), sizeof(T), 1, f);
 }
@@ -22,6 +17,49 @@ void fwrite(FILE *f, const T &t, const Args&... args)
 {
 	fwrite(f, t);
 	fwrite(f, args...);
+}
+
+
+inline std::vector<std::string> split(const std::string &s, const std::string &pat) 
+{
+	std::vector<std::string> ret;
+	int p = 0, oldp = 0;
+	while ((p = s.find(pat, p)) != std::string::npos)
+		ret.push_back(s.substr(oldp, p - oldp)), ++p, oldp = p;
+	ret.push_back(s.substr(oldp));
+	return ret;
+}
+
+inline std::vector<std::string> readLine()
+{
+	std::string temp;
+	getline(std::cin, temp);
+	auto it = std::unique(temp.begin(), temp.end(), [](char a, char b) { return a == ' '&&b == ' '; });
+	temp.erase(it, temp.end());
+	return split(temp, " ");
+}
+
+inline void writeEmpty(FILE *f, int cnt)
+{
+	if (cnt == 0)
+		return;
+	fseek(f, cnt - 1, SEEK_CUR);
+	fwrite(f, '\0');
+}
+
+inline void cpy(char *dest, const std::string &str, int maxSize)
+{
+	maxSize = std::min(maxSize, (int)str.size());
+	memcpy(dest, str.c_str(), maxSize * sizeof(char));
+	dest[maxSize] = '\0';
+}
+template<size_t N>
+std::string fullCharArrToStr(const char (&s)[N])
+{
+	std::string ret;
+	for (int i = 0; i < N; ++i)
+		ret += s[i];
+	return ret;
 }
 
 template<typename T>
@@ -41,24 +79,18 @@ template<size_t N>
 void fread(FILE *f,char (&s)[N])
 {
 	fread(&s, sizeof(char), N, f);
-	/*char c;
-	for (int i = 0; i < N; ++i)
-	{
-		fread(f, c);
-		if (c)
-			s[i] = c;
-		else
-		{
-			fseek(f, N - i, SEEK_CUR);
-			memset(s + i, 0, (N - i) * sizeof(char));
-			break;
-		}
-	}*/
 }
 
 template<size_t N>
-void fwrite(FILE *f, const char(&s)[N])
+void fwrite(FILE *f, const char(&s)[N], bool full = false)
 {
+	//fwrite(s, sizeof(char), N, f);
+	if (full)
+	{
+		for (int i = 0; i < N; ++i)
+			fwrite(f, s[i]);
+		return;
+	}
 	for (int i = 0; i < N; ++i)
 	{
 		if (s[i])
@@ -70,5 +102,4 @@ void fwrite(FILE *f, const char(&s)[N])
 		}
 	}
 }
-
 #endif

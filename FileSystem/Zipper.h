@@ -74,10 +74,7 @@ private:
 			codeToChar[pre] = tree[r].data;
 		}
 	}
-	char label(char c)
-	{
-		return c | (1 << 7);
-	}
+
 	char decode(const std::string &s)//"01010"->char
 	{
 		//对应下面decode的时候，也只会生成对应char
@@ -100,35 +97,34 @@ public:
 			zipped += charToCode[input[i]];
 		}
 		std::string ret;//直接放进文件
-		ret += label(codeToChar.size());
+		ret += codeToChar.size();
 		for (auto c : codeToChar)
 		{
-			ret += label(c.first.size());
-			ret += label(decode(c.first));
-			ret += label(c.second);
+			ret += c.first.size();
+			ret += decode(c.first);
+			ret += c.second;
 		}
 		//存放input的size，避免因为最后一位尾部补0而识别出多余的字符
-		//这里只用4个char的28位来存放该int(低位在前)，因为文件系统实际容量有限
 		int countLetters = input.size();
 		for (int i = 0; i<4; ++i)
 		{
-			ret += label(countLetters&((1 << 7) - 1));
-			countLetters >>= 7;
+			ret += countLetters&((1 << 8) - 1);
+			countLetters >>= 8;
 		}
 
 		for (int i = 0; i<zipped.size(); ++i)
 		{
-			if (i + 6 < zipped.size())
+			if (i + 7 < zipped.size())
 			{
-				ret += label(decode(zipped.substr(i, 7)));
-				i += 6;
+				ret += decode(zipped.substr(i, 8));
+				i += 7;
 			}
 			else
 			{
 				std::string sub = zipped.substr(i);
-				for (; sub.size() != 7;)//低位补0，有一个问题：可能最后补的0又被当成一个新字符，这里先不处理
+				for (; sub.size() != 8;)//低位补0
 					sub += '0';
-				ret += label(decode(sub));
+				ret += decode(sub);
 				break;
 			}
 		}
@@ -142,13 +138,8 @@ public:
 class DeZipper//文件->01序列->std::string
 {
 private:
-	const static int ALPHABET_SIZE = 128;//char类型只有0-127有意义
+	const static int ALPHABET_SIZE = 128;
 	std::map<std::string, char> codeToChar;
-
-	char delable(char c)
-	{
-		return c & ~(1 << 7);
-	}
 
 	std::string encode(char c, int bitnum)
 	{
@@ -164,25 +155,20 @@ public:
 	std::string operator()(const std::string &bitstream)
 	{
 		int pos = 0;
-		int alphabetSize = delable(bitstream[pos++]);
+		int alphabetSize = bitstream[pos++];
 		for (int i = 0; i < alphabetSize; ++i)
 		{
-			int bitnum = delable(bitstream[pos++]);
-			char code = delable(bitstream[pos++]);
-			char letter = delable(bitstream[pos++]);
+			int bitnum = bitstream[pos++];
+			char code = bitstream[pos++];
+			char letter =bitstream[pos++];
 			codeToChar[encode(code, bitnum)] = letter;
 		}
-		int countLetters = 0;
-		for (int i = 0; i<4; ++i)
-		{
-			countLetters += delable(bitstream[pos++]) << (i * 7);
-		}
+		int countLetters = *reinterpret_cast<const int*>(&bitstream[pos]);
+		pos += 4;
 		std::string coded;
 		for (; pos<bitstream.size(); ++pos)
-		{
-			coded += encode(delable(bitstream[pos]), 7);
-		}
-		std::string ret;//原std::string
+			coded += encode(bitstream[pos], 8);
+		std::string ret;//原string
 		for (int i = 0; i < coded.size() && countLetters; ++i)
 		{
 			for (int j = 1; j + i <= coded.size(); ++j)
@@ -190,7 +176,7 @@ public:
 				std::string sub = coded.substr(i, j);
 				if (codeToChar.count(sub))
 				{
-					ret += char(codeToChar.at(sub));
+					ret += codeToChar.at(sub);
 					--countLetters;
 					i += j - 1;
 					break;
